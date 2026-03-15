@@ -1,0 +1,47 @@
+name: Open Pixel State of Maryland Forecast Procurement Agent
+
+on:
+  schedule:
+    # Runs every other Monday at 9am ET (adjust to your preference)
+    - cron: '0 13 1,15 * *'   # 1st and 15th of every month, 9am ET
+  workflow_dispatch:           # Also allows manual trigger from GitHub UI
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install anthropic xlrd requests python-dotenv
+
+      - name: Download latest MD Procurement Forecast
+        run: |
+          # Maryland's forecast export URL — exports full dataset as XLS
+          curl -L -o forecast.xls \
+            "https://gomdsmallbiz.maryland.gov/Pages/Forecasting.aspx" \
+            --output forecast.xls
+          # NOTE: The actual XLS download URL requires a form POST — see note below
+
+      - name: Run procurement agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}
+          CLICKUP_LIST_ID: ${{ secrets.CLICKUP_LIST_ID }}
+        run: |
+          python open_pixel_procurement_forecast_agent.py --file forecast.xls
+
+      - name: Commit updated snapshot
+        run: |
+          git config user.name "Procurement Bot"
+          git config user.email "info@openpixel.com"
+          git add procurement_snapshot.json
+          git diff --staged --quiet || git commit -m "Update procurement snapshot $(date +'%Y-%m-%d')"
+          git push
